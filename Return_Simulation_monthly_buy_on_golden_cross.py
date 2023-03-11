@@ -2,9 +2,11 @@ import codecs
 import datetime
 import os
 import time
+
 import cnum
 import tqdm as tqdm
 from dateutil.relativedelta import relativedelta
+
 from stock_calculation import utils
 
 PJ_dir = "Return_Simulation/Return_Simulation_Timing/buy_on_golden_cross/"
@@ -22,12 +24,14 @@ def calculate_return_monthly_buy_on_golden_cross_single_try(sheet_tuple, df, SMA
     current_month = startdate
     invested_asset = 0
     invested_months = 0
-    wallet = monthly_income #最初は財布に貯めておく
+    wallet = monthly_income  # 最初は財布に貯めておく
     elapsed_months = 1
     sold_count = 0
     wallet_count = 1
     invested_amount = 0
     n1_price = sheet_tuple[utils.get_index(sheet_tuple, current_month)][1]
+    golden_cross_dates = []
+    dead_cross_dates = []
     while utils.canbe_simulated_monthly(sheet_tuple, current_month, 1) and elapsed_months / 12 < invest_years:
         n2_price = sheet_tuple[utils.get_index(sheet_tuple, current_month)][1]
         growth_rate = (n2_price - n1_price) / n1_price
@@ -38,10 +42,12 @@ def calculate_return_monthly_buy_on_golden_cross_single_try(sheet_tuple, df, SMA
             wallet = 0
             invested_months += 1
             invested_amount = (wallet_count + invested_months) * monthly_income
+            golden_cross_dates.append(current_month)
         elif utils.cross_type(df, SMA_short, SMA_long, current_month, sheet_tuple) == "DC":
             wallet += monthly_income + invested_asset
             invested_asset = 0
             sold_count += 1
+            dead_cross_dates.append(current_month)
         else:
             wallet += monthly_income
             wallet_count += 1
@@ -50,7 +56,7 @@ def calculate_return_monthly_buy_on_golden_cross_single_try(sheet_tuple, df, SMA
         current_month = utils.return_calculatable_date(sheet_tuple,
                                                        (current_month + relativedelta(months=1)).replace(day=1))
         elapsed_months += 1
-    return invested_amount, invested_asset, wallet, invested_months, sold_count, elapsed_months
+    return invested_amount, invested_asset, wallet, invested_months, sold_count, elapsed_months, golden_cross_dates, dead_cross_dates
 
 
 def calculate_return_monthly_buy_on_golden_cross_iterate(ticker, df, SMA_short, SMA_long, startdate: datetime,
@@ -89,7 +95,7 @@ def calculate_return_monthly_buy_on_golden_cross_iterate(ticker, df, SMA_short, 
                                                    datetime.datetime.fromtimestamp(
                                                        time.time()).strftime("%H:%M:%S")),
               file=codecs.open(asset_logfile, "a", "utf-8"))
-        invested_amount, invested_asset, wallet, invested_months, sold_count, elapsed_months = \
+        invested_amount, invested_asset, wallet, invested_months, sold_count, elapsed_months, golden_cross_dates, dead_cross_dates = \
             calculate_return_monthly_buy_on_golden_cross_single_try(
                 sheet_tuple, df, SMA_short, SMA_long, current_date, invest_years,
                 monthly_income, inflation_rate)
@@ -109,16 +115,17 @@ def calculate_return_monthly_buy_on_golden_cross_iterate(ticker, df, SMA_short, 
                   file=codecs.open(asset_logfile, "a", "utf-8"))
         current_date = utils.return_calculatable_date(sheet_tuple,
                                                       (current_date + relativedelta(months=1)).replace(day=1))
-    return asset_result_list, asset_list, invested_amount_list, invested_months_list, sold_count_list
+    return asset_result_list, asset_list, invested_amount_list, invested_months_list, sold_count_list, golden_cross_dates, dead_cross_dates
 
 def generate_dumpfiles_monthly_buy_on_golden_cross(
         ticker, df, SMA_short, SMA_long, startdate: datetime, enddate, invest_years, monthly_income,
         inflation_rate=0, dump_dir="", out_dir="", asset_log_dir=""):
     utils.make_dir(dump_dir)
     utils.make_dir(out_dir)
-    asset_result_list, asset_list, invested_amount_list, invested_months_list, sold_count_list = \
+    asset_result_list, asset_list, invested_amount_list, invested_months_list, sold_count_list, golden_cross_dates, dead_cross_dates = \
         calculate_return_monthly_buy_on_golden_cross_iterate(
-            ticker, df, SMA_short, SMA_long, startdate, enddate, invest_years, monthly_income, inflation_rate, asset_log_dir
+            ticker, df, SMA_short, SMA_long, startdate, enddate, invest_years, monthly_income, inflation_rate,
+            asset_log_dir
         )
 
     if dump_dir != "":
@@ -136,7 +143,9 @@ def generate_dumpfiles_monthly_buy_on_golden_cross(
                                   asset_list=asset_list,
                                   invested_amount_list=invested_amount_list,
                                   invested_months_list=invested_months_list,
-                                  sold_count_list=sold_count_list
+                                  sold_count_list=sold_count_list,
+                                  golden_cross_dates=golden_cross_dates,
+                                  dead_cross_dates=dead_cross_dates
                                   )
     return asset_result_list, asset_list, invested_amount_list, invested_months_list, sold_count_list
 
@@ -144,23 +153,23 @@ def generate_dumpfiles_monthly_buy_on_golden_cross(
 if __name__ == '__main__':
     starttime = time.time()
     print("start: {}".format(datetime.datetime.fromtimestamp(starttime).strftime("%H:%M:%S")))
-    SMA_short = 5
-    SMA_long = 25
-
+    SMA_short_long_list = [(5, 25), (25, 75), (50, 200)]
 
     SPX_tuple = utils.get_tuple_1886_monthly("SPX")
-    SPX_daily_dataframe = utils.get_dataframe_1886_daily("SPX", SMA_short, SMA_long)
-    startdate = utils.return_calculatable_date(SPX_tuple, SPX_tuple[0][0] + relativedelta(months=6))    #SMA長期のために6か月をバッファーとする
+
+    startdate = utils.return_calculatable_date(SPX_tuple,
+                                               SPX_tuple[0][0] + relativedelta(months=6))  # SMA長期のために6か月をバッファーとする
     enddate = SPX_tuple[-1][0]
-    for ticker in ["SPX", "SPXL", "SSO"]:
-        for invest_years in tqdm.tqdm([30, 10, 20, 40, 50],
-                                      desc=f"{ticker}, calculate different invest years"):
-            generate_dumpfiles_monthly_buy_on_golden_cross(
-            ticker, SPX_daily_dataframe, SMA_short, SMA_long, startdate, enddate, invest_years, monthly_income, inflation_rate,
-            dump_dir + f"{ticker}_{invest_years}years_SMAshort_{SMA_short}_SMAlong_{SMA_long}/",
-            out_dir + f"{ticker}_{invest_years}years_SMAshort_{SMA_short}_SMAlong_{SMA_long}/",
-            asset_log_dir)
-                # for invest_years in tqdm.tqdm([10, 20, 30, 40, 50], desc=f"{ticker}, change rate{change_rate_threshold_low:.0%} - {change_rate_threshold_high:.0%}"):
+    for invest_years in tqdm.tqdm([30, 10, 20, 40, 50]):
+        for ticker in ["SPX", "SPXL", "SSO"]:
+            for SMA_short, SMA_long in SMA_short_long_list:
+                SPX_daily_dataframe = utils.get_dataframe_1886_daily("SPX", SMA_short, SMA_long)
+                generate_dumpfiles_monthly_buy_on_golden_cross(
+                    ticker, SPX_daily_dataframe, SMA_short, SMA_long, startdate, enddate, invest_years, monthly_income,
+                    inflation_rate,
+                    dump_dir + f"{ticker}_{invest_years}years_SMAshort_{SMA_short}_SMAlong_{SMA_long}/",
+                    out_dir + f"{ticker}_{invest_years}years_SMAshort_{SMA_short}_SMAlong_{SMA_long}/",
+                    asset_log_dir)
 
     print("end: {}".format(datetime.datetime.fromtimestamp(time.time()).strftime("%H:%M:%S")))
 

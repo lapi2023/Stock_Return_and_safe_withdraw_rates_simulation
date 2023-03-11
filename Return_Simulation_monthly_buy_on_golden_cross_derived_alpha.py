@@ -2,9 +2,11 @@ import codecs
 import datetime
 import os
 import time
+
 import cnum
 import tqdm as tqdm
 from dateutil.relativedelta import relativedelta
+
 from stock_calculation import utils
 
 PJ_dir = "Return_Simulation/Return_Simulation_Timing/buy_on_golden_cross_derived_alpha/"
@@ -157,22 +159,23 @@ def generate_dumpfiles_monthly_buy_on_golden_cross_derived_alpha(
 if __name__ == '__main__':
     starttime = time.time()
     print("start: {}".format(datetime.datetime.fromtimestamp(starttime).strftime("%H:%M:%S")))
-    SMA = 25
-
+    SMA_list = [25, 50, 200]
 
     SPX_tuple = utils.get_tuple_1886_monthly("SPX")
-    SPX_daily_dataframe = utils.get_dataframe_1886_daily("SPX", SMA)
-    startdate = utils.return_calculatable_date(SPX_tuple, SPX_tuple[0][0] + relativedelta(months=6))    #SMA長期のために6か月をバッファーとする
+
+    startdate = utils.return_calculatable_date(SPX_tuple,
+                                               SPX_tuple[0][0] + relativedelta(months=6))  # SMA長期のために6か月をバッファーとする
     enddate = SPX_tuple[-1][0]
     for ticker in ["SPX", "SPXL", "SSO"]:
         for invest_years in tqdm.tqdm([30, 10, 20, 40, 50],
                                       desc=f"{ticker}, calculate different invest years"):
-            generate_dumpfiles_monthly_buy_on_golden_cross_derived_alpha(
-            ticker, SPX_daily_dataframe, SMA, startdate, enddate, invest_years, monthly_income, inflation_rate,
-            dump_dir + f"{ticker}_{invest_years}years_SMA_{SMA}/",
-            out_dir + f"{ticker}_{invest_years}years_SMA_{SMA}/",
-            asset_log_dir)
-                # for invest_years in tqdm.tqdm([10, 20, 30, 40, 50], desc=f"{ticker}, change rate{change_rate_threshold_low:.0%} - {change_rate_threshold_high:.0%}"):
+            for SMA in SMA_list:
+                SPX_daily_dataframe = utils.get_dataframe_1886_daily("SPX", SMA)
+                generate_dumpfiles_monthly_buy_on_golden_cross_derived_alpha(
+                    ticker, SPX_daily_dataframe, SMA, startdate, enddate, invest_years, monthly_income, inflation_rate,
+                    dump_dir + f"{ticker}_{invest_years}years_SMA_{SMA}/",
+                    out_dir + f"{ticker}_{invest_years}years_SMA_{SMA}/",
+                    asset_log_dir)
 
     print("end: {}".format(datetime.datetime.fromtimestamp(time.time()).strftime("%H:%M:%S")))
 
